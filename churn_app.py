@@ -4,12 +4,14 @@ import pandas as pds
 import matplotlib.pyplot as mpl
 import seaborn as sbn
 import shap
-import joblib
-import os
+from sklearn.datasets import make_classification
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     accuracy_score, roc_auc_score, f1_score,
     precision_score, recall_score, confusion_matrix, roc_curve
 )
+from xgboost import XGBClassifier
+import lightgbm as lgb
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -18,36 +20,7 @@ st.set_page_config(
     layout="wide",
 )
 
-MODELS_DIR = "models"
-
-# ── Load pre-trained models saved from the notebook ──────────────────────────
-@st.cache_resource(show_spinner="Loading models...")
-def load_models():
-    if not os.path.exists(MODELS_DIR):
-        st.error(
-            "**Models folder not found.**\n\n"
-            "Please run all cells in `Customer_Churn_ML_Model.ipynb` first, "
-            "especially **Section 12 — Save Models & Artifacts for Streamlit**."
-        )
-        st.stop()
-
-    xgb      = joblib.load(f'{MODELS_DIR}/xgb_tuned.pkl')
-    lgbm     = joblib.load(f'{MODELS_DIR}/lgb_tuned.pkl')
-    scaler   = joblib.load(f'{MODELS_DIR}/scaler.pkl')
-    X_test   = pds.read_csv(f'{MODELS_DIR}/X_test.csv')
-    y_test   = pds.read_csv(f'{MODELS_DIR}/y_test.csv').squeeze()
-    FEATURE_NAMES = joblib.load(f'{MODELS_DIR}/feature_names.pkl')
-
-    explainer_xgb  = shap.TreeExplainer(xgb)
-    explainer_lgbm = shap.TreeExplainer(lgbm)
-
-    return {
-        'xgb': xgb, 'lgbm': lgbm, 'scaler': scaler,
-        'explainer_xgb': explainer_xgb, 'explainer_lgbm': explainer_lgbm,
-        'X_test': X_test, 'y_test': y_test,
-        'FEATURE_NAMES': FEATURE_NAMES,
-    }
-
+SEED = 42
 FEATURE_NAMES = [
     'tenure_months', 'monthly_charges', 'total_charges',
     'num_products', 'support_calls', 'payment_delay_days',
@@ -55,6 +28,50 @@ FEATURE_NAMES = [
     'streaming_tv', 'age', 'satisfaction_score',
     'data_usage_gb', 'late_payments', 'promo_discount'
 ]
+
+# ── Train models on the fly (cached so it only runs once per session) ─────────
+@st.cache_resource(show_spinner="Training models — please wait...")
+def load_models():
+    X_raw, y = make_classification(
+        n_samples=5000, n_features=15, n_informative=10,
+        n_redundant=3, n_clusters_per_class=2,
+        weights=[0.75, 0.25], flip_y=0.02,
+        random_state=SEED
+    )
+    df = pds.DataFrame(X_raw, columns=FEATURE_NAMES)
+    df['churn'] = y
+
+    X = df.drop('churn', axis=1)
+    y = df['churn']
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=SEED, stratify=y
+    )
+
+    xgb = XGBClassifier(
+        n_estimators=300, max_depth=6, learning_rate=0.05,
+        subsample=0.8, colsample_bytree=0.8,
+        scale_pos_weight=(y_train == 0).sum() / (y_train == 1).sum(),
+        use_label_encoder=False, eval_metric='logloss',
+        random_state=SEED, verbosity=0
+    )
+    xgb.fit(X_train, y_train)
+
+    lgbm = lgb.LGBMClassifier(
+        n_estimators=300, max_depth=6, learning_rate=0.05,
+        num_leaves=63, class_weight='balanced',
+        random_state=SEED, verbosity=-1
+    )
+    lgbm.fit(X_train, y_train)
+
+    explainer_xgb  = shap.TreeExplainer(xgb)
+    explainer_lgbm = shap.TreeExplainer(lgbm)
+
+    return {
+        'xgb': xgb, 'lgbm': lgbm,
+        'explainer_xgb': explainer_xgb, 'explainer_lgbm': explainer_lgbm,
+        'X_test': X_test, 'y_test': y_test, 'df': df,
+        'FEATURE_NAMES': FEATURE_NAMES,
+    }
 
 data = load_models()
 FEATURE_NAMES = data['FEATURE_NAMES']
@@ -94,7 +111,7 @@ if page == "🏠 Overview":
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Dataset size", "5,000 customers")
-    col2.metric("Churn rate", f"{data['df']['churn'].mean():.1%}")
+    col2.metric("Churn rate", f"{data['df']['churn'].mean():.1%}" if 'df' in data else "25.0%")
     col3.metric("Features", str(len(FEATURE_NAMES)))
 
     st.markdown("---")
