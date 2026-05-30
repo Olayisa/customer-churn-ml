@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "my-video (Remotion Studio)",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeArgs": [
+        "C:\\Users\\Public\\Claude_Code\\my-video\\node_modules\\@remotion\\cli\\remotion-cli.js",
+        "studio",
+        "C:\\Users\\Public\\Claude_Code\\my-video\\src\\index.ts"
+      ],
+      "cwd": "C:\\Users\\Public\\Claude_Code\\my-video",
+      "port": 3000,
+      "autoPort": true
+    }
+  ]
+}

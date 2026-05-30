@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_in_Chrome__navigate(github.com)",
+      "mcp__Claude_in_Chrome__browser_batch(github.com)"
+    ]
+  }
+}
